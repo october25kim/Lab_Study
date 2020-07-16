@@ -12,7 +12,7 @@ import gzip
 import pickle
 from time import time
 from tqdm import tqdm
-
+# aaa
 sys.path.append('..')
 
 from tensorflow.keras.layers import Input
@@ -216,7 +216,6 @@ for c in np.unique(train_y):
 
     class_means.append(class_mean)
     mr_models.append(mr)
-
 class_means = np.array(class_means)
 
 def compute_openmax(actvec):
@@ -230,7 +229,6 @@ def compute_openmax(actvec):
         w * actvec,
         [((1 - w) * actvec).sum()]])
     return np.exp(rev_actvec) / np.exp(rev_actvec).sum()
-
 
 def make_prediction(_scores, _T, thresholding=True):
     _scores = np.array([compute_openmax(x) for x in _scores])
@@ -255,29 +253,29 @@ unseen_alarm = np.expand_dims(x_6413, axis=3)[:,10:52,:].astype(np.float16)
 unseen_alarm_test = tf.data.Dataset.from_tensor_slices(unseen_alarm).batch(TEST_BATCH_SIZE)
 test_scores = get_model_outputs(unseen_alarm_test)
 test_unseen_alarm_labels = make_prediction(test_scores, threshold, thresholding)
-test_before = np.argmax(test_scores, axis=1)
 
 ## testing on random noise (Unseen Classes)
 images = np.random.uniform(0, 1, (100, 42, 60, 1)).astype(np.float16)
 test_batcher = tf.data.Dataset.from_tensor_slices(images).batch(TEST_BATCH_SIZE)
 test_scores = get_model_outputs(test_batcher)
 test_noise_labels = make_prediction(test_scores, threshold, thresholding)
-test_noise_before = np.argmax(test_scores, axis=1)
 
-## Total
+## Test Data(seen)
+test_y_a = np.argmax(test_y_enc, axis=1)
+test_seen_macro_f1 = f1_score(test_y_a, test_pred_before, average='macro')
+test_seen_acc = accuracy_score(test_y_a, test_pred_before)
+print('Confusion Matrix(seen)')
+print(confusion_matrix(test_y_a, test_pred_before))
+
+## Total (Test & Unseen)
 test_unseen_labels = np.concatenate([test_unseen_alarm_labels,test_noise_labels])
 test_pred = np.concatenate([test_pred_labels, test_unseen_labels])
-test_y_a = np.argmax(test_y_enc, axis=1)
 test_true = np.concatenate([test_y_a.flatten(), np.ones_like(test_unseen_labels) * m])
 
 test_macro_f1 = f1_score(test_true, test_pred, average='macro')
-test_seen_acc = accuracy_score(test_true, test_pred)
-confusion_matrix(test_true, test_pred)
-
-## 개별
-f1_score(test_y_a, test_pred_before, average='macro')
-accuracy_score(test_y_a, test_pred_before)
-confusion_matrix(test_y_a, test_pred_before)
+test_acc = accuracy_score(test_true, test_pred)
+print('Confusion Matrix(overall)')
+print(confusion_matrix(test_true, test_pred))
 
 test_unseen_f1 = np.array([f1_score(np.ones_like(test_unseen_labels), test_unseen_labels == m),
                            f1_score(np.ones_like(test_unseen_alarm_labels), test_unseen_alarm_labels == m),
@@ -287,11 +285,14 @@ test_unseen_accuracy = np.array([accuracy_score(np.ones_like(test_unseen_labels)
                            accuracy_score(np.ones_like(test_unseen_alarm_labels), test_unseen_alarm_labels == m),
                            accuracy_score(np.ones_like(test_noise_labels), test_noise_labels == m)])
 
+print('Confusion Matrix(overall)')
 confusion_matrix(np.ones_like(test_unseen_labels), test_unseen_labels == m)
 confusion_matrix(np.ones_like(test_unseen_alarm_labels), test_unseen_alarm_labels == m)
 confusion_matrix(np.ones_like(test_noise_labels), test_noise_labels == m)
 
 print('overall f1: {:.4f}'.format(test_macro_f1))
+print('overall acc: {:.4f}'.format(test_acc))
+print('seen f1: {:.4f}'.format(test_seen_macro_f1))
 print('seen acc: {:.4f}'.format(test_seen_acc))
 print('unseen f1: {:.4f} / {:.4f} / {:.4f}'.format(*test_unseen_f1))
 print('unseen accuracy: {:.4f} / {:.4f} / {:.4f}'.format(*test_unseen_accuracy))
