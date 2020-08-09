@@ -69,6 +69,7 @@ def alarm_labeling(dat_t, alarm, hour):
         dat_alarm[idx_start_time]["ALARM"][:idx_alarm][idxs_alarm] = alarm_id
     for i in range(alarm_num):
         dat_t = pd.concat((dat_t, dat_alarm[i]), axis=1)
+
     dat_t['ALARM_ID'] = dat_t['ALARM'].sum(axis=1)
     dat_t = dat_t.drop(['ALARM'], axis=1)
     return dat_t
@@ -82,7 +83,6 @@ def unify_time_unit(dat, unify_sec, idx_logging=False, verbose=False):
     :param verbose: 옵션
     :return:
     """
-
     def to_micsec(time_gap):
         return (time_gap.days * 24 * 60 * 60 + time_gap.seconds) * 1000000 + time_gap.microseconds
 

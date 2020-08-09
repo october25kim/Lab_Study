@@ -4,14 +4,16 @@ import libmr
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import sys
-import argparse
 import numpy as np
-import pandas as pd
 import tensorflow as tf
 import gzip
 import pickle
+import matplotlib.pyplot as plt
+
 from time import time
 from tqdm import tqdm
+from sklearn.preprocessing import StandardScaler
+
 # aaa
 sys.path.append('..')
 
@@ -24,7 +26,6 @@ from tensorflow.keras.layers import AveragePooling2D
 from tensorflow.keras.layers import GlobalAveragePooling2D
 from tensorflow.keras.layers import BatchNormalization
 
-from tensorflow.keras.datasets.cifar10 import load_data
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import accuracy_score
@@ -41,8 +42,6 @@ SAVEDIR = '/result/'
 TARGETS = '0,1,2,3,4,5'
 MODEL = 'Openmax'
 DATASET = 'Hyundai_Car'
-
-experiment_start = time()
 
 total_classes = list(range(5))
 target_classes = total_classes
@@ -73,7 +72,6 @@ def ConvBlock(x, filters):
                padding='same')(x)
     return x
 
-
 def TransitionBlock(x, filters, compression=1):
     x = BatchNormalization(axis=-1)(x)
     x = ReLU()(x)
@@ -83,14 +81,12 @@ def TransitionBlock(x, filters, compression=1):
     x = AveragePooling2D(pool_size=(2, 2), strides=(2, 2))(x)
     return x
 
-
 def DenseBlock(x, layers, growth_rate):
     concat_feature = x
     for l in range(layers):
         x = ConvBlock(concat_feature, growth_rate)
         concat_feature = Concatenate(axis=-1)([concat_feature, x])
     return concat_feature
-
 
 def define_model(x_shape, use_bias=False, print_summary=False):
     _in = Input(shape=x_shape)
@@ -108,20 +104,20 @@ def define_model(x_shape, use_bias=False, print_summary=False):
         model.summary()
     return model
 
-with gzip.open('D:/Openset_signal/data/X', 'rb') as f:
+with gzip.open('D:/Openset_signal/data/108_세타_m37_2020-04-01_2020-05-31_x', 'rb') as f:
     X = pickle.load(f)
-with gzip.open('D:/Openset_signal/data/Y', 'rb') as f:
+with gzip.open('D:/Openset_signal/data/108_세타_m37_2020-04-01_2020-05-31_y', 'rb') as f:
     Y = pickle.load(f)
 Y = np.array(Y)
 
-y_0 = Y[Y == 0][:2000]
+y_0 = Y[Y == 5]
 y_6413 = Y[Y == 6413]
 y_3000 = Y[Y == 3000]
 y_66950 = Y[Y == 66950]
 y_25050 = Y[Y == 25050]
 y_20052 = Y[Y == 20052]
 
-x_0 = X[np.tile(Y == 0, 52*60).reshape(-1,52,60)].reshape(-1,52,60)[:2000]
+x_0 = X[np.tile(Y == 5, 52*60).reshape(-1,52,60)].reshape(-1,52,60)
 x_6413 = X[np.tile(Y == 6413, 52*60).reshape(-1,52,60)].reshape(-1,52,60)
 x_3000 = X[np.tile(Y == 3000, 52*60).reshape(-1,52,60)].reshape(-1,52,60)
 x_66950 = X[np.tile(Y == 66950, 52*60).reshape(-1,52,60)].reshape(-1,52,60)
@@ -138,48 +134,73 @@ x = np.append(x,x_66950, axis=0)
 x = np.append(x,x_25050, axis=0)
 x = np.append(x,x_20052, axis=0)
 
-train_x, test_x, train_y, test_y = train_test_split(x, y, test_size=0.1, shuffle=True, random_state=1)
+X = x[:,10:52,:]
+X_test = x_6413[:,10:52,:]
+y_test = y_6413
 
-train_x = np.expand_dims(train_x, axis=3)
-test_x = np.expand_dims(test_x, axis=3)
-train_x, test_x = train_x[:,10:52,:].astype(np.float16), test_x[:,10:52,:].astype(np.float16)
+X_train, X_val, y_train, y_val  = train_test_split(X, y, test_size = 0.20, random_state = 2020, stratify = y)
+
+X_train = X_train.transpose(0,2,1)
+X_train = X_train.reshape(-1,42)
+
+X_val = X_val.transpose(0,2,1)
+X_val = X_val.reshape(-1,42)
+
+X_test = X_test.transpose(0,2,1)
+X_test = X_test.reshape(-1,42)
+
+scaler = StandardScaler()
+scaler.fit(X_train)
+
+X_train_scaled = scaler.transform(X_train)
+X_train = X_train_scaled.reshape(-1,60,42)
+
+X_val_scaled = scaler.transform(X_val)
+X_val = X_val_scaled.reshape(-1,60,42)
+
+X_test_scaled = scaler.transform(X_test)
+X_test = X_test_scaled.reshape(-1,60,42)
+
+X_train = X_train.transpose(0,2,1)
+X_val = X_val.transpose(0,2,1)
+X_test = X_test.transpose(0,2,1)
+
+train_x = np.expand_dims(X_train, axis=3).astype(np.float16)
+test_x = np.expand_dims(X_val, axis=3).astype(np.float16)
+unseen_x = np.expand_dims(X_test, axis=3).astype(np.float16)
 
 enc = OneHotEncoder(sparse=False, categories='auto')
-train_y_enc = enc.fit_transform(train_y.reshape(-1, 1)).astype(np.float16)
-test_y_enc = enc.fit_transform(test_y.reshape(-1, 1)).astype(np.float16)
+train_y_enc = enc.fit_transform(y_train.reshape(-1, 1)).astype(np.float16)
+test_y_enc = enc.fit_transform(y_val.reshape(-1, 1)).astype(np.float16)
 
 train_data = tf.data.Dataset.from_tensor_slices((train_x, train_y_enc)).shuffle(BUFFER_SIZE, SEED, True).batch(BATCH_SIZE)
 CNN = define_model(train_x.shape[1:], False, False)
 network_opt = tf.optimizers.Adam(1E-2)
-CNN.summary()
+
 @tf.function
 def network_train_step(x, y):
     with tf.GradientTape() as network_tape:
         y_pred = CNN(x, training=True)
-
         network_loss = tf.keras.losses.categorical_crossentropy(y, y_pred, from_logits=True)
         network_acc = tf.keras.metrics.categorical_accuracy(y, y_pred)
 
     network_grad = network_tape.gradient(network_loss, CNN.trainable_variables)
     network_opt.apply_gradients(zip(network_grad, CNN.trainable_variables))
-
     return tf.reduce_mean(network_loss), tf.reduce_mean(network_acc)
 
 def train(dataset, epochs):
     pbar = tqdm(range(epochs))
+    total_loss = []
     for epoch in pbar:
         if epoch == 50:
             network_opt.__setattr__('learning_rate', 1E-3)
         elif epoch == 100:
             network_opt.__setattr__('learning_rate', 1E-4)
-
-        avg_loss = []
         for batch in dataset:
             losses = network_train_step(batch[0], batch[1])
-            avg_loss.append(losses)
-
         pbar.set_description('Categorical CE Loss: {:.4f} | Accuracy: {:.4f} '.format(*np.array(losses)))
-
+        total_loss.append(losses)
+    return total_loss
 
 def get_model_outputs(dataset, prob=False):
     pred_scores = []
@@ -191,20 +212,35 @@ def get_model_outputs(dataset, prob=False):
     pred_scores = np.concatenate(pred_scores, axis=0)
     return pred_scores
 
-train(train_data, 150)
+avg_loss = train(train_data, 50)
+CNN.save_weights("D:/Openset_signal/openmax/model/DenseNet_50epochs.h5")
 
+# plotting loss
+x_len = np.arange(len(avg_loss))
+plt.plot(x_len, avg_loss, marker='.', c='blue', label="Train-set Loss")
+plt.legend(loc='upper right')
+plt.grid()
+plt.xlabel('batch')
+plt.ylabel('loss')
+plt.show()
+
+# Train accuracy
 train_data = tf.data.Dataset.from_tensor_slices(train_x).batch(TEST_BATCH_SIZE)
 train_pred_scores = get_model_outputs(train_data, False)
 train_pred_simple = np.argmax(train_pred_scores, axis=1)
 train_y_a = np.argmax(train_y_enc, axis=1)
 accuracy_score(train_y_a, train_pred_simple)
+print(confusion_matrix(train_y_a, train_pred_simple))
+
+# OpenMax
+threshold = 0.95
 
 train_correct_actvec = train_pred_scores[np.where(train_y_a == train_pred_simple)[0]]
-train_correct_labels = train_y[np.where(train_y_a == train_pred_simple)[0]]
+train_correct_labels = y_train[np.where(train_y_a == train_pred_simple)[0]]
 dist_to_means = []
 mr_models, class_means = [], []
 
-for c in np.unique(train_y):
+for c in np.unique(y_train):
     class_act_vec = train_correct_actvec[np.where(train_correct_labels == c)[0], :]
     class_mean = class_act_vec.mean(axis=0)
     dist_to_mean = np.square(class_act_vec - class_mean).sum(axis=1)
@@ -246,7 +282,8 @@ thresholding = True
 test_data = tf.data.Dataset.from_tensor_slices(test_x).batch(TEST_BATCH_SIZE)
 test_pred_scores = get_model_outputs(test_data)
 test_pred_labels = make_prediction(test_pred_scores, threshold, thresholding)
-test_pred_before = np.argmax(test_pred_scores, axis=1)
+test_pred_simple = np.argmax(test_pred_scores, axis=1)
+
 
 ## testing on 6413 (Unseen Classes)
 unseen_alarm = np.expand_dims(x_6413, axis=3)[:,10:52,:].astype(np.float16)
@@ -262,16 +299,16 @@ test_noise_labels = make_prediction(test_scores, threshold, thresholding)
 
 ## Test Data(seen)
 test_y_a = np.argmax(test_y_enc, axis=1)
-test_seen_macro_f1 = f1_score(test_y_a, test_pred_before, average='macro')
-test_seen_acc = accuracy_score(test_y_a, test_pred_before)
+test_seen_macro_f1 = f1_score(test_y_a, test_pred_simple, average='macro')
+test_seen_acc = accuracy_score(test_y_a, test_pred_simple)
 print('Confusion Matrix(seen)')
-print(confusion_matrix(test_y_a, test_pred_before))
+print(confusion_matrix(test_y_a, test_pred_simple))
+accuracy_score(test_y_a, test_pred_simple)
 
 ## Total (Test & Unseen)
 test_unseen_labels = np.concatenate([test_unseen_alarm_labels,test_noise_labels])
 test_pred = np.concatenate([test_pred_labels, test_unseen_labels])
 test_true = np.concatenate([test_y_a.flatten(), np.ones_like(test_unseen_labels) * m])
-
 test_macro_f1 = f1_score(test_true, test_pred, average='macro')
 test_acc = accuracy_score(test_true, test_pred)
 print('Confusion Matrix(overall)')
@@ -285,9 +322,11 @@ test_unseen_accuracy = np.array([accuracy_score(np.ones_like(test_unseen_labels)
                            accuracy_score(np.ones_like(test_unseen_alarm_labels), test_unseen_alarm_labels == m),
                            accuracy_score(np.ones_like(test_noise_labels), test_noise_labels == m)])
 
-print('Confusion Matrix(overall)')
+print('Confusion Matrix(unseen)')
 confusion_matrix(np.ones_like(test_unseen_labels), test_unseen_labels == m)
+print('Confusion Matrix(6413)')
 confusion_matrix(np.ones_like(test_unseen_alarm_labels), test_unseen_alarm_labels == m)
+print('Confusion Matrix(noise)')
 confusion_matrix(np.ones_like(test_noise_labels), test_noise_labels == m)
 
 print('overall f1: {:.4f}'.format(test_macro_f1))
